@@ -87,6 +87,7 @@ const SendIcon = () => (
     </svg>
 );
 
+
 // === UTILITY FUNCTIONS ===
 
 // Gets appropriate greeting based on current time
@@ -766,7 +767,7 @@ const App = () => {
                                         placeholder="How can I help you today?"
                                         value={inputText}
                                         onChange={handleInputChange}
-                                        onKeyPress={handleKeyPress}
+                                        onKeyDown={handleKeyPress}
                                         maxLength={8000}
                                         aria-label="Message input"
                                         disabled={isLoading}
@@ -977,7 +978,7 @@ const App = () => {
                                     placeholder="Reply to Claude..."
                                     value={inputText}
                                     onChange={handleInputChange}
-                                    onKeyPress={handleKeyPress}
+                                    onKeyDown={handleKeyPress}
                                     maxLength={8000}
                                     aria-label="Reply message input"
                                     disabled={isLoading}

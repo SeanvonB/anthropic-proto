@@ -9,9 +9,9 @@
  * @license MIT
  */
 
-const claudeService = require('../lib/claude-service');
-const config = require('../lib/config');
-const logger = require('../lib/logger');
+import claudeService from '../lib/claude-service.js';
+import config from '../lib/config.js';
+import logger from '../lib/logger.js';
 
 /**
  * Set CORS headers for API responses

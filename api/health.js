@@ -9,8 +9,8 @@
  * @license MIT
  */
 
-const config = require('../lib/config');
-const logger = require('../lib/logger');
+import config from '../lib/config.js';
+import logger from '../lib/logger.js';
 
 /**
  * Set CORS headers for API responses
