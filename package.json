@@ -1,0 +1,32 @@
+{
+  "name": "anthropic-proto",
+  "version": "1.0.0",
+  "description": "Claude.ai prototype with realistic confidence meter",
+  "author": "Sean von Bayern",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SeanvonB/anthropic-proto"
+  },
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'No build step required for Vercel deployment'",
+    "start": "vercel dev",
+    "deploy": "vercel --prod",
+    "deploy-preview": "vercel"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "claude",
+    "ai", 
+    "chat",
+    "prototype",
+    "vercel",
+    "serverless",
+    "anthropic",
+    "react",
+    "javascript"
+  ],
+  "license": "MIT"
+}

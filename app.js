@@ -1,3 +1,14 @@
+/**
+ * Claude.ai Prototype - Frontend Application
+ * 
+ * A production-ready replica of Claude.ai with real API integration.
+ * Built with React, featuring secure backend communication and responsive design.
+ * 
+ * @author Sean von Bayern
+ * @version 1.0.0
+ * @license MIT
+ */
+
 const { useState, useEffect } = React;
 
 // === ICON COMPONENTS ===
@@ -156,6 +167,7 @@ const App = () => {
     const [toggleHover, setToggleHover] = useState(false);
     const [messageReactions, setMessageReactions] = useState({}); // {messageId: 'liked' | 'disliked' | null}
     const [copiedMessages, setCopiedMessages] = useState(new Set()); // Set of messageIds showing copy feedback
+    const [isLoading, setIsLoading] = useState(false); // Loading state for API calls
 
     // Get current messages from active chat session
     const messages = activeChatId && chatSessions[activeChatId] 
@@ -166,6 +178,46 @@ const App = () => {
     const currentChatName = activeChatId && chatSessions[activeChatId]
         ? chatSessions[activeChatId].name
         : 'New Chat';
+
+    // Claude API client function
+    // Communicates with our secure backend server that handles API key protection
+    const callClaudeAPI = async (messages) => {
+        try {
+            // Format messages for our API
+            const formattedMessages = messages.map(msg => ({
+                role: msg.type === 'user' ? 'user' : 'assistant',
+                content: msg.content
+            }));
+
+            const response = await fetch('/api/claude', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    messages: formattedMessages
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || `Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            // Extract response text from our server's formatted response
+            if (data.content && data.content[0] && data.content[0].text) {
+                return data.content[0].text;
+            } else {
+                throw new Error('Invalid response format from server');
+            }
+            
+        } catch (error) {
+            console.error('Claude API Error:', error);
+            throw error;
+        }
+    };
 
     // Creates a new chat session and switches to it
     const startNewChat = () => {
@@ -194,8 +246,8 @@ const App = () => {
         }
     };
 
-    // Handles sending user messages and simulating Claude responses
-    const sendMessage = () => {
+    // Handles sending user messages and getting Claude responses
+    const sendMessage = async () => {
         try {
             // Rate limiting - prevent spam
             const now = Date.now();
@@ -207,6 +259,12 @@ const App = () => {
             // Basic validation
             if (inputText.trim().length === 0) {
                 setError('Please enter a message.');
+                return;
+            }
+
+            // Prevent sending if already loading
+            if (isLoading) {
+                setError('Please wait for the current response to complete.');
                 return;
             }
 
@@ -260,13 +318,21 @@ const App = () => {
             setInputText('');
             setLastMessageTime(now);
             setError('');
+            setIsLoading(true);
 
-            // Simulate Claude response
-            setTimeout(() => {
+            // Get updated messages list for API call
+            const updatedMessages = chatSessions[chatId] 
+                ? [...chatSessions[chatId].messages, userMessage]
+                : [userMessage];
+
+            // Call Claude API
+            try {
+                const response = await callClaudeAPI(updatedMessages);
+                
                 const assistantMessage = {
                     id: `assistant-${Date.now()}`,
                     type: 'assistant',
-                    content: "Hi there! I'm doing well, thank you for asking. I'm here and ready to help with whatever you'd like to work on or chat about. How are you doing today?",
+                    content: response,
                     timestamp: new Date()
                 };
                 
@@ -277,10 +343,32 @@ const App = () => {
                         messages: [...prev[chatId].messages, assistantMessage]
                     }
                 }));
-            }, 1000);
+            } catch (apiError) {
+                console.error('API Error:', apiError);
+                setError(`Failed to get response from Claude: ${apiError.message}`);
+                
+                // Add a fallback message to indicate the error
+                const errorMessage = {
+                    id: `assistant-${Date.now()}`,
+                    type: 'assistant',
+                    content: "I'm sorry, I'm having trouble connecting right now. Please try again in a moment.",
+                    timestamp: new Date()
+                };
+                
+                setChatSessions(prev => ({
+                    ...prev,
+                    [chatId]: {
+                        ...prev[chatId],
+                        messages: [...prev[chatId].messages, errorMessage]
+                    }
+                }));
+            } finally {
+                setIsLoading(false);
+            }
         } catch (err) {
             setError('An error occurred while sending the message.');
             console.error('Send message error:', err);
+            setIsLoading(false);
         }
     };
 
@@ -681,6 +769,7 @@ const App = () => {
                                         onKeyPress={handleKeyPress}
                                         maxLength={8000}
                                         aria-label="Message input"
+                                        disabled={isLoading}
                                     />
                                     <div className="input-actions">
                                         <button className="input-btn" aria-label="Add attachment">
@@ -712,7 +801,7 @@ const App = () => {
                                                 <polyline points="6,9 12,15 18,9"/>
                                             </svg>
                                         </div>
-                                        <button className="send-btn" onClick={sendMessage} disabled={!inputText.trim()} aria-label="Send message">
+                                        <button className="send-btn" onClick={sendMessage} disabled={!inputText.trim() || isLoading} aria-label="Send message">
                                             <SendIcon />
                                         </button>
                                     </div>
@@ -839,6 +928,22 @@ const App = () => {
                                         )}
                                     </div>
                                 ))}
+                                {isLoading && (
+                                    <div className="message assistant-message">
+                                        <div className="message-content">
+                                            <div className="typing-indicator">
+                                                <div className="typing-dots">
+                                                    <span></span>
+                                                    <span></span>
+                                                    <span></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="message-avatar">
+                                            <ClaudeLogo />
+                                        </div>
+                                    </div>
+                                )}
                                 {messages.length > 0 && (
                                     <div className="claude-notice">
                                         Claude can make mistakes. Please double-check responses.
@@ -875,6 +980,7 @@ const App = () => {
                                     onKeyPress={handleKeyPress}
                                     maxLength={8000}
                                     aria-label="Reply message input"
+                                    disabled={isLoading}
                                 />
                                 <div className="input-actions">
                                     <button className="input-btn" aria-label="Add attachment">
@@ -906,7 +1012,7 @@ const App = () => {
                                             <polyline points="6,9 12,15 18,9"/>
                                         </svg>
                                     </div>
-                                    <button className="send-btn" onClick={sendMessage} disabled={!inputText.trim()} aria-label="Send message">
+                                    <button className="send-btn" onClick={sendMessage} disabled={!inputText.trim() || isLoading} aria-label="Send message">
                                         <SendIcon />
                                     </button>
                                 </div>
