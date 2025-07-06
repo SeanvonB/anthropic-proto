@@ -9,7 +9,7 @@
  * @license MIT
  */
 
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
 // === ICON COMPONENTS ===
 
@@ -87,6 +87,94 @@ const SendIcon = () => (
     </svg>
 );
 
+/**
+ * Confidence Meter Component
+ * Displays a visual indicator of Claude's confidence level in its response
+ */
+const ConfidenceMeter = ({ confidence }) => {
+    const [showTooltip, setShowTooltip] = useState(false);
+
+    // Map confidence statements to levels
+    const getConfidenceLevel = (statement) => {
+        // Default to moderate confidence (3) if no statement provided
+        if (!statement) return 3;
+        
+        const confidenceMap = {
+            "I am extremely confident": 5,
+            "I am fairly confident": 4,
+            "I think it was probably good enough": 3,
+            "I do have some strong doubts": 2,
+            "I am not confident at all": 1
+        };
+        
+        // First try exact match
+        if (confidenceMap[statement]) {
+            return confidenceMap[statement];
+        }
+        
+        // If not exact match, look for the confidence statement within the text
+        const normalizedStatement = statement.toLowerCase().trim();
+        
+        // Check if any of the expected statements appear in the response
+        for (const [expectedStatement, level] of Object.entries(confidenceMap)) {
+            if (normalizedStatement.includes(expectedStatement.toLowerCase())) {
+                return level;
+            }
+        }
+        
+        // Additional fallback patterns for common variations
+        if (normalizedStatement.includes("extremely confident")) return 5;
+        if (normalizedStatement.includes("fairly confident")) return 4;
+        if (normalizedStatement.includes("probably good enough")) return 3;
+        if (normalizedStatement.includes("strong doubts")) return 2;
+        if (normalizedStatement.includes("not confident at all")) return 1;
+        
+        // Default to moderate confidence instead of unknown
+        return 3;
+    };
+
+    const level = getConfidenceLevel(confidence);
+    const lights = [];
+
+    // Map confidence levels to readable text
+    const getConfidenceText = (level) => {
+        const confidenceText = {
+            5: "Confidence: Very High",
+            4: "Confidence: High", 
+            3: "Confidence: Moderate",
+            2: "Confidence: Low",
+            1: "Confidence: Very Low"
+        };
+        return confidenceText[level] || "Confidence: Moderate";
+    };
+
+    for (let i = 1; i <= 5; i++) {
+        lights.push(
+            <div 
+                key={i}
+                className={`confidence-light ${(6 - i) <= level ? 'lit' : 'unlit'}`}
+                data-level={level}
+            />
+        );
+    }
+
+    return (
+        <div 
+            className="confidence-meter-container"
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+        >
+            <div className="confidence-meter">
+                {lights}
+            </div>
+            {showTooltip && (
+                <div className="confidence-tooltip">
+                    {getConfidenceText(level)}
+                </div>
+            )}
+        </div>
+    );
+};
 
 // === UTILITY FUNCTIONS ===
 
@@ -113,49 +201,12 @@ const getTimeBasedGreeting = () => {
     }
 };
 
-// Chat session utilities
-// Generates a readable chat name from the first message
-const generateChatName = (firstMessage) => {
-    if (!firstMessage || firstMessage.length === 0) return 'New Chat';
-    
-    // Take first few words from the message
-    const words = firstMessage.trim().split(' ').slice(0, 3);
-    let name = words.join(' ');
-    
-    // Capitalize first letter
-    name = name.charAt(0).toUpperCase() + name.slice(1);
-    
-    // Remove any trailing punctuation and limit length
-    name = name.replace(/[.!?,:;]*$/, '');
-    return name.length > 30 ? name.substring(0, 30) + '...' : name;
-};
-
 // === MAIN APP COMPONENT ===
 
 // Main App Component
 const App = () => {
     const [currentView, setCurrentView] = useState('home'); // 'home' or 'chat'
-    const [chatSessions, setChatSessions] = useState({
-        'friendly-greeting': {
-            id: 'friendly-greeting',
-            name: 'Friendly Greeting',
-            messages: [
-                {
-                    id: 'user-initial',
-                    type: 'user',
-                    content: 'Hi Claude! How are you today?',
-                    timestamp: new Date('2024-01-01T10:00:00')
-                },
-                {
-                    id: 'assistant-initial',
-                    type: 'assistant',
-                    content: "Hi there! I'm doing well, thank you for asking. I'm here and ready to help with whatever you'd like to work on or chat about. How are you doing today?",
-                    timestamp: new Date('2024-01-01T10:00:30')
-                }
-            ],
-            createdAt: new Date('2024-01-01')
-        }
-    });
+    const [chatSessions, setChatSessions] = useState({});
     const [activeChatId, setActiveChatId] = useState(null);
     const [inputText, setInputText] = useState('');
     const [lastMessageTime, setLastMessageTime] = useState(0);
@@ -164,11 +215,13 @@ const App = () => {
     const [renamingChatId, setRenamingChatId] = useState(null);
     const [renameText, setRenameText] = useState('');
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
     const [toggleHover, setToggleHover] = useState(false);
     const [messageReactions, setMessageReactions] = useState({}); // {messageId: 'liked' | 'disliked' | null}
     const [copiedMessages, setCopiedMessages] = useState(new Set()); // Set of messageIds showing copy feedback
     const [isLoading, setIsLoading] = useState(false); // Loading state for API calls
+    const [confidenceEnabled, setConfidenceEnabled] = useState(true); // Toggle for confidence assessment feature
+    const chatMessagesRef = useRef(null); // Ref for chat messages container for scrolling
 
     // Get current messages from active chat session
     const messages = activeChatId && chatSessions[activeChatId] 
@@ -180,13 +233,29 @@ const App = () => {
         ? chatSessions[activeChatId].name
         : 'New Chat';
 
+    /**
+     * Scrolls chat messages to the bottom
+     * Uses a small delay to ensure DOM updates are complete
+     */
+    const scrollToBottom = () => {
+        // Small delay to ensure DOM updates are complete
+        setTimeout(() => {
+            if (chatMessagesRef.current) {
+                chatMessagesRef.current.scrollTo({
+                    top: chatMessagesRef.current.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        }, 50);
+    };
+
     // Claude API client function
     // Communicates with our secure backend server that handles API key protection
-    const callClaudeAPI = async (messages) => {
+    const callClaudeAPI = async (messages, assessConfidence = false, generateTitle = false) => {
         try {
             // Format messages for our API
             const formattedMessages = messages.map(msg => ({
-                role: msg.type === 'user' ? 'user' : 'assistant',
+                role: msg.role || (msg.type === 'user' ? 'user' : 'assistant'),
                 content: msg.content
             }));
 
@@ -196,7 +265,9 @@ const App = () => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    messages: formattedMessages
+                    messages: formattedMessages,
+                    assessConfidence: assessConfidence,
+                    generateTitle: generateTitle
                 })
             });
 
@@ -277,7 +348,7 @@ const App = () => {
                 chatId = `chat-${Date.now()}`;
                 const newChat = {
                     id: chatId,
-                    name: generateChatName(inputText),
+                    name: 'New Chat', // Will be updated with Claude-generated title
                     messages: [],
                     createdAt: new Date()
                 };
@@ -288,6 +359,24 @@ const App = () => {
                 }));
                 setActiveChatId(chatId);
                 setCurrentView('chat');
+
+                // Generate title from first user message
+                try {
+                    const titleResponse = await callClaudeAPI([{role: 'user', content: messageContent}], false, true);
+                    const generatedTitle = titleResponse.trim();
+                    
+                    // Update the chat session with the generated title
+                    setChatSessions(prev => ({
+                        ...prev,
+                        [chatId]: {
+                            ...prev[chatId],
+                            name: generatedTitle
+                        }
+                    }));
+                } catch (titleError) {
+                    console.warn('Title generation failed:', titleError);
+                    // Keep "New Chat" as fallback
+                }
             }
             
             const userMessage = {
@@ -305,10 +394,7 @@ const App = () => {
                     messages: [...currentSession.messages, userMessage]
                 };
 
-                // Update chat name if this is the first message and we didn't set it above
-                if (currentSession.messages.length === 0 && currentSession.name === 'New Chat') {
-                    updatedSession.name = generateChatName(inputText);
-                }
+                // Note: Chat title is now generated by Claude in the new chat creation above
 
                 return {
                     ...prev,
@@ -334,8 +420,27 @@ const App = () => {
                     id: `assistant-${Date.now()}`,
                     type: 'assistant',
                     content: response,
-                    timestamp: new Date()
+                    timestamp: new Date(),
+                    confidence: null
                 };
+
+                // If confidence assessment is enabled, make second API call
+                if (confidenceEnabled) {
+                    try {
+                        // Add the assistant message to the conversation for confidence assessment
+                        const messagesWithResponse = [...updatedMessages, {
+                            role: 'assistant',
+                            content: response
+                        }];
+                        
+                        // Make confidence assessment call
+                        const confidenceResponse = await callClaudeAPI(messagesWithResponse, true);
+                        assistantMessage.confidence = confidenceResponse.trim();
+                    } catch (confidenceError) {
+                        console.warn('Confidence assessment failed:', confidenceError);
+                        // Message will display with null confidence (greyed out meter)
+                    }
+                }
                 
                 setChatSessions(prev => ({
                     ...prev,
@@ -502,7 +607,11 @@ const App = () => {
             textArea.value = messageContent.replace(/<[^>]*>/g, '');
             document.body.appendChild(textArea);
             textArea.select();
-            document.execCommand('copy');
+            try {
+                document.execCommand('copy'); // Note: deprecated but kept for browser compatibility
+            } catch (execError) {
+                console.warn('Fallback copy failed:', execError);
+            }
             document.body.removeChild(textArea);
             
             // Show checkmark feedback even for fallback
@@ -538,6 +647,21 @@ const App = () => {
         document.addEventListener('click', handleClickOutside);
         return () => document.removeEventListener('click', handleClickOutside);
     }, []);
+
+    // Scroll to bottom when messages change
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
+
+    // Scroll to bottom when loading state changes (typing indicator)
+    useEffect(() => {
+        scrollToBottom();
+    }, [isLoading]);
+
+    // Scroll to bottom when switching chats
+    useEffect(() => {
+        scrollToBottom();
+    }, [activeChatId]);
 
     return (
         <div className="app">
@@ -607,7 +731,7 @@ const App = () => {
                                     type="text"
                                     value={renameText}
                                     onChange={(e) => setRenameText(e.target.value)}
-                                    onKeyPress={(e) => handleRenameKeyPress(e, session.id)}
+                                    onKeyDown={(e) => handleRenameKeyPress(e, session.id)}
                                     onBlur={() => saveRename(session.id)}
                                     autoFocus
                                     style={{
@@ -682,7 +806,7 @@ const App = () => {
                                         type="text"
                                         value={renameText}
                                         onChange={(e) => setRenameText(e.target.value)}
-                                        onKeyPress={(e) => handleRenameKeyPress(e, activeChatId)}
+                                        onKeyDown={(e) => handleRenameKeyPress(e, activeChatId)}
                                         onBlur={() => saveRename(activeChatId)}
                                         autoFocus
                                         style={{
@@ -729,10 +853,23 @@ const App = () => {
                                 </div>
                             )}
                         </div>
-                        <button className="share-btn" aria-label="Share conversation">
-                            <ShareIcon />
-                            <span>Share</span>
-                        </button>
+                        <div className="header-right">
+                            <div className="confidence-toggle">
+                                <span className="toggle-label">Confidence Meter</span>
+                                <label className="toggle-switch">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={confidenceEnabled}
+                                        onChange={(e) => setConfidenceEnabled(e.target.checked)}
+                                    />
+                                    <span className="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <button className="share-btn" aria-label="Share conversation">
+                                <ShareIcon />
+                                <span>Share</span>
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -862,7 +999,7 @@ const App = () => {
                             </div>
                         </div>
                     ) : (
-                        <div className="chat-messages">
+                        <div className="chat-messages" ref={chatMessagesRef}>
                             <div className="chat-content">
                                 {messages.map((message) => (
                                     <div key={message.id} className={`message ${message.type}-message`}>
@@ -880,6 +1017,7 @@ const App = () => {
                                                 <div className="message-content">
                                                     <div dangerouslySetInnerHTML={{__html: message.content}} />
                                                     <div className="message-actions">
+                                                        {confidenceEnabled && <ConfidenceMeter confidence={message.confidence} />}
                                                         <button 
                                                             className="message-action"
                                                             onClick={() => copyToClipboard(message.content, message.id)}
@@ -930,7 +1068,7 @@ const App = () => {
                                     </div>
                                 ))}
                                 {isLoading && (
-                                    <div className="message assistant-message">
+                                    <div className="message assistant-message loading-message">
                                         <div className="message-content">
                                             <div className="typing-indicator">
                                                 <div className="typing-dots">

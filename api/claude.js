@@ -86,8 +86,42 @@ export default async function handler(req, res) {
       return;
     }
 
+    // Check if this is a confidence assessment request
+    const isConfidenceAssessment = req.body.assessConfidence === true;
+    const isTitleGeneration = req.body.generateTitle === true;
+    let messages = req.body.messages;
+
+    // If confidence assessment, append the confidence prompt
+    if (isConfidenceAssessment) {
+      const confidencePrompt = {
+        role: 'user',
+        content: `Based on the conversation above, select how confident you are about your last response:
+- "I am extremely confident"
+- "I am fairly confident"
+- "I think it was probably good enough"
+- "I do have some strong doubts"
+- "I am not confident at all"
+
+Your selection should reflect the factual accuracy AND conversational relevance of your last response.
+
+Respond with ONLY the exact confidence statement, nothing else.`
+      };
+      messages = [...messages, confidencePrompt];
+    }
+
+    // If title generation, append the title prompt
+    if (isTitleGeneration) {
+      const titlePrompt = {
+        role: 'user',
+        content: `Based on this conversation, generate a short, descriptive title (3-5 words max) that captures the main topic or question. The title should be clear and helpful for identifying this conversation later.
+
+Respond with ONLY the title, nothing else.`
+      };
+      messages = [...messages, titlePrompt];
+    }
+
     // Call Claude service
-    const response = await claudeService.sendMessages(req.body.messages);
+    const response = await claudeService.sendMessages(messages);
 
     // Format response to match Claude API structure
     const responseData = {

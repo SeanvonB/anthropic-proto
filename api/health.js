@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       },
       api: {
         claude: {
-          configured: !!process.env.CLAUDE_API,
+          configured: !!process.env.ANTHROPIC_API_KEY,
           model: config.claude.model,
           timeout: config.security.requestTimeoutMs
         }
